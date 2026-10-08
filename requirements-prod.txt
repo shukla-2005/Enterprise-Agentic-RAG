@@ -7,7 +7,7 @@ fastapi==0.136.1
 uvicorn[standard]==0.46.0
 python-dotenv==1.2.2
 requests==2.33.1
-numpy>=1.26,<3
+numpy==2.2.6
 pytz==2026.2
 
 # --- GOOGLE CLOUD ---
@@ -33,7 +33,7 @@ langchain-openai==1.2.1
 pydantic==2.13.4
 
 # --- GUARDRAILS ---
-nemoguardrails>=0.22,<0.25
+nemoguardrails==0.22.0
 langchain-nvidia-ai-endpoints==1.3.0
 
 # --- LLM GATEWAY ---
