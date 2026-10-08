@@ -1,18 +1,26 @@
-FROM python:3.11-slim-bookworm
+FROM python:3.10-slim
 
-# Patch OS-level CVEs, then install system deps required by torch and native packages
+# Install system packages required for native Python packages like annoy
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
-    gcc g++ libgomp1 \
+    build-essential \
+    gcc \
+    g++ \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy requirements first so pip install is a cached layer.
-# Re-runs only when requirements.txt changes, not on every code change.
+# Copy requirements first for Docker layer caching
 COPY requirements-prod.txt .
+
+# Upgrade packaging tools
+RUN python -m pip install --upgrade pip setuptools wheel
+
+# Install production dependencies
 RUN pip install --no-cache-dir --prefer-binary -r requirements-prod.txt
 
-# Copy only the app package — everything else (evals/, ui/, DATA/, DOCS/) stays out
+# Copy only backend application
 COPY app/ ./app/
 
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
+# Render provides PORT automatically
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}"]
