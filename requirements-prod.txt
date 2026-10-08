@@ -24,6 +24,7 @@ FlashRank==0.2.10
 redis==7.4.0
 
 # --- LANGCHAIN & AGENTIC ORCHESTRATION ---
+langchain-google-genai==4.4.0
 langchain==1.2.18
 langgraph==1.1.10
 langchain-google-vertexai==3.2.3
