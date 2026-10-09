@@ -38,7 +38,7 @@ with st.sidebar:
     st.title("Agent OS")
     st.markdown("---")
 
-    base_url = st.secrets.get("BACKEND_URL", os.getenv("BACKEND_URL", "http://localhost:8000")).rstrip("/")
+    base_url = st.secrets.get("BACKEND_URL", os.getenv("BACKEND_URL", "https://enterprise-agentic-rag-1-w3bs.onrender.com")).rstrip("/")
 
     st.markdown("---")
     st.success(f"Logfire: {LOGFIRE_STATUS}")
