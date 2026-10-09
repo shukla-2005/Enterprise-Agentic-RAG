@@ -12,7 +12,7 @@ pytz==2026.2
 
 # --- GOOGLE CLOUD ---
 google-cloud-storage==3.10.1
-google-cloud-aiplatform==1.151.0
+google-cloud-aiplatform==1.153.1
 google-cloud-documentai==3.14.0
 cloud-sql-python-connector==1.20.2
 pg8000==1.31.5
@@ -24,10 +24,10 @@ FlashRank==0.2.10
 redis==7.4.0
 
 # --- LANGCHAIN & AGENTIC ORCHESTRATION ---
-langchain-google-genai==4.4.0
 langchain==1.2.18
 langgraph==1.1.10
 langchain-google-vertexai==3.2.3
+langchain-google-genai==4.4.0
 langchain-groq==1.1.2
 langchain-community==0.4.1
 langchain-openai==1.2.1
@@ -50,3 +50,5 @@ python-pptx==1.0.2
 python-docx==1.2.0
 pypdf==6.11.0
 beautifulsoup4==4.14.3
+
+annoy>=1.17.3
