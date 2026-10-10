@@ -1,541 +1,148 @@
+﻿import logging
 import os
-import time
 import uuid
-from contextlib import nullcontext
 
+import logfire
 import requests
 import streamlit as st
-import logfire
+
+st.set_page_config(page_title="Enterprise Assistant", page_icon="✦", layout="wide")
 
 
-# =========================================================
-# LOGFIRE CONFIGURATION
-# =========================================================
-try:
-    logfire_token = st.secrets.get(
-        "LOGFIRE_TOKEN",
-        os.getenv("LOGFIRE_TOKEN")
-    )
-
-    if logfire_token:
-        logfire.configure(token=logfire_token)
-        logfire.instrument_requests()
-        LOGFIRE_STATUS = "Connected & Tracing"
-    else:
-        LOGFIRE_STATUS = "Standby (No Token)"
-
-except Exception as e:
-    LOGFIRE_STATUS = "Standby (Configuration Failed)"
-    print(f"Logfire configuration error: {e}")
-
-
-# =========================================================
-# PAGE CONFIG
-# =========================================================
-st.set_page_config(
-    page_title="Enterprise Agentic RAG",
-    page_icon="🤖",
-    layout="wide",
-)
-
-
-# =========================================================
-# CONSTANTS
-# =========================================================
-AI_AVATAR = "🤖"
-USER_AVATAR = "👤"
-
-
-# =========================================================
-# BACKEND URL
-# =========================================================
-try:
-    configured_backend = st.secrets.get("BACKEND_URL")
-except FileNotFoundError:
-    configured_backend = None
-
-base_url = (
-    configured_backend
-    or os.getenv("BACKEND_URL")
-    or "https://enterprise-agentic-rag-1-w3bs.onrender.com"
-).strip().rstrip("/")
-
-
-# =========================================================
-# SESSION MANAGEMENT
-# =========================================================
-if "session_id" not in st.session_state:
-    st.session_state.session_id = str(uuid.uuid4())
-
+def setting(name, default=None):
     try:
-        logfire.info(
-            "New User Session Created",
-            session_id=st.session_state.session_id
-        )
+        return st.secrets.get(name) or os.getenv(name, default)
+    except FileNotFoundError:
+        return os.getenv(name, default)
+
+
+@st.cache_resource
+def configure_tracing():
+    try:
+        token = setting("LOGFIRE_TOKEN")
+        if token:
+            logfire.configure(token=token)
     except Exception:
-        pass
+        logging.exception("Tracing configuration failed")
 
 
-if "messages" not in st.session_state:
+configure_tracing()
+base_url = setting("BACKEND_URL", "https://enterprise-agentic-rag-1-w3bs.onrender.com").strip().rstrip("/")
+st.session_state.setdefault("session_id", str(uuid.uuid4()))
+st.session_state.setdefault("messages", [])
+
+
+def new_chat():
     st.session_state.messages = []
+    st.session_state.session_id = str(uuid.uuid4())
+    st.session_state.pop("pending_prompt", None)
 
 
-# =========================================================
-# SIDEBAR
-# =========================================================
+def ask(prompt):
+    st.session_state.pending_prompt = prompt
+
+
+def show_answer(message):
+    st.markdown(message["content"])
+    sources = message.get("sources", [])
+    if sources:
+        with st.expander(f"Explore sources · {len(sources)} excerpts"):
+            for index, source in enumerate(sources, 1):
+                st.caption(f"EXCERPT {index}")
+                st.markdown(str(source))
+                if index < len(sources):
+                    st.divider()
+
+
 with st.sidebar:
-    st.title("Agent OS")
+    st.title("✦ Enterprise Assistant")
+    st.caption("Your workspace for technical answers.")
+    st.button("＋ New conversation", on_click=new_chat, width="stretch", type="primary")
+    st.divider()
+    st.markdown("**Explore your knowledge**")
+    st.caption("Kubernetes · Intel hardware · Enterprise networking")
+    st.markdown("**Make it a conversation**")
+    st.caption("Ask a follow-up, request an example, or compare approaches. Your conversation stays in context.")
+    if st.session_state.messages:
+        transcript = "\n\n---\n\n".join(
+            f"## {message['role'].title()}\n\n{message['content']}"
+            for message in st.session_state.messages
+        )
+        st.download_button("Download conversation", transcript, file_name="enterprise-conversation.md", mime="text/markdown", width="stretch")
 
-    st.markdown("---")
+st.title("What would you like to explore?")
+st.caption("Turn enterprise documentation into clear answers, practical examples, and next steps.")
 
-    st.success(f"Logfire: {LOGFIRE_STATUS}")
+if not st.session_state.messages:
+    st.markdown("### Start with a question")
+    examples = [
+        ("☸ Kubernetes", "Understand your cluster", "Explain Kubernetes deployments, services, and pods with a practical example."),
+        ("◈ Intel hardware", "Explore performance", "How does SR-IOV work with Intel network adapters?"),
+        ("⇄ Networking", "Connect the concepts", "Compare VLANs and VXLANs and explain when to use each."),
+    ]
+    for column, (title, subtitle, question) in zip(st.columns(3), examples):
+        with column:
+            with st.container(border=True):
+                st.markdown(f"**{title}**")
+                st.caption(subtitle)
+                st.button("Explore →", key=title, on_click=ask, args=(question,), width="stretch")
+    st.info("Start with one of these topics, or write your own question below.")
 
-    st.info(
-        f"Memory ID: {st.session_state.session_id[:8]}"
-    )
-
-    st.caption(f"Backend: {base_url}")
-
-    if st.button("Check backend status"):
-        try:
-            health_response = requests.get(f"{base_url}/health", timeout=(10, 20))
-            if health_response.status_code == 200:
-                st.success("Backend is ready.")
-            elif health_response.status_code == 503:
-                st.warning(health_response.json().get("status", "Unavailable"))
-            else:
-                st.error(f"Backend health check returned HTTP {health_response.status_code}.")
-        except (requests.exceptions.RequestException, ValueError):
-            st.error("Cannot read backend health. Check the backend URL and Render logs.")
-
-    st.markdown("---")
-
-    if st.button(
-        "Clear History & Memory",
-        width="stretch",
-        type="primary"
-    ):
-        try:
-            logfire.warning(
-                "Memory Wipe Triggered",
-                session_id=st.session_state.session_id
-            )
-        except Exception:
-            pass
-
-        st.session_state.messages = []
-        st.session_state.session_id = str(uuid.uuid4())
-
-        st.rerun()
-
-
-# =========================================================
-# MAIN CHAT
-# =========================================================
-st.title("Enterprise Agentic Assistant")
-
-st.caption(
-    "Ask questions about your enterprise documentation."
-)
-
-
-# =========================================================
-# DISPLAY CHAT HISTORY
-# =========================================================
 for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        if message.get("error"):
+            st.warning(message["content"])
+        elif message["role"] == "assistant":
+            show_answer(message)
+        else:
+            st.markdown(message["content"])
 
-    avatar = (
-        AI_AVATAR
-        if message["role"] == "assistant"
-        else USER_AVATAR
-    )
+if st.session_state.messages and st.session_state.messages[-1]["role"] == "assistant" and not st.session_state.messages[-1].get("error"):
+    st.caption("KEEP EXPLORING")
+    followups = [
+        ("Explain simply", "Explain your last answer in simpler terms."),
+        ("Show an example", "Give me a practical example based on your last answer."),
+        ("Summarize", "Summarize your last answer in three key points."),
+    ]
+    for column, (label, question) in zip(st.columns(3), followups):
+        column.button(label, on_click=ask, args=(question,), width="stretch")
 
-    with st.chat_message(
-        message["role"],
-        avatar=avatar
-    ):
-        st.markdown(message["content"])
-
-
-# =========================================================
-# CHAT INPUT
-# =========================================================
-prompt = st.chat_input(
-    "Ask about your documentation..."
-)
-
+entered_prompt = st.chat_input("Ask a question or follow up on an answer…")
+prompt = st.session_state.pop("pending_prompt", None) or entered_prompt
 
 if prompt:
-
-    # -----------------------------------------------------
-    # Save user message
-    # -----------------------------------------------------
-    st.session_state.messages.append(
-        {
-            "role": "user",
-            "content": prompt
-        }
-    )
-
-    with st.chat_message(
-        "user",
-        avatar=USER_AVATAR
-    ):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
         st.markdown(prompt)
-
-
-    # -----------------------------------------------------
-    # USER TRACE
-    # -----------------------------------------------------
-    try:
-        trace_context = logfire.span(
-            "User Chat Interaction",
-            user_query=prompt,
-            session_id=st.session_state.session_id
-        )
-    except Exception:
-        trace_context = None
-
-
-    # -----------------------------------------------------
-    # ASSISTANT RESPONSE
-    # -----------------------------------------------------
-    with st.chat_message(
-        "assistant",
-        avatar=AI_AVATAR
-    ):
-
-        data = {}
-
-        request_failed = False
-        error_message = ""
-
-        # =================================================
-        # BACKEND REQUEST STATUS
-        # =================================================
-        with st.status(
-            "Agent is thinking...",
-            expanded=True
-        ) as status:
-
+    error = None
+    data = {}
+    with st.chat_message("assistant"):
+        with st.spinner("Working on your answer…"):
             try:
-
-                url = f"{base_url}/query"
-
-                payload = {
-                    "q": prompt,
-                    "thread_id": st.session_state.session_id
-                }
-
-                st.write("Connecting to RAG backend...")
-
-                try:
-                    backend_trace = logfire.span(
-                        "Calling RAG Backend",
-                        backend_url=url
-                    )
-                except Exception:
-                    backend_trace = nullcontext()
-
-                # A timeout may happen after the backend has processed the message.
-                # Never replay a stateful chat request as a tracing fallback.
-                with backend_trace:
-                    response = requests.post(
-                        url,
-                        json=payload,
-                        timeout=(10, 120)
-                    )
-
-                # -----------------------------------------
-                # Non-200 backend response
-                # -----------------------------------------
-                if response.status_code != 200:
-
-                    request_failed = True
-
-                    try:
-                        backend_body = response.text
-                    except Exception:
-                        backend_body = "No backend response body."
-
-                    if response.status_code in (502, 504):
-                        error_message = (
-                            f"Backend unavailable (HTTP {response.status_code}). "
-                            "Render could not get a valid response from the backend. "
-                            "It may be starting, restarting, or failing. "
-                            "Use 'Check backend status' in the sidebar. If this persists, "
-                            "check the Render service logs for startup errors or memory limits."
-                        )
-                    elif response.status_code == 503:
-                        try:
-                            error_message = response.json().get("detail", "Backend is not ready.")
-                        except ValueError:
-                            error_message = "Backend is temporarily unavailable. Try again shortly."
-                    else:
-                        error_message = (
-                            f"Backend Error: {response.status_code}\n\n{backend_body}"
-                        )
-
-                    status.update(
-                        label="Backend Error",
-                        state="error",
-                        expanded=True
-                    )
-
-                else:
-
-                    # -------------------------------------
-                    # Parse backend JSON
-                    # -------------------------------------
-                    try:
-                        data = response.json()
-
-                    except ValueError:
-
-                        request_failed = True
-
-                        error_message = (
-                            "Backend returned an invalid "
-                            "JSON response.\n\n"
-                            f"Response:\n{response.text}"
-                        )
-
-                        status.update(
-                            label="Invalid Backend Response",
-                            state="error",
-                            expanded=True
-                        )
-
-
-                    # -------------------------------------
-                    # Thought Process
-                    # -------------------------------------
-                    if not request_failed:
-
-                        steps = data.get(
-                            "thought_process",
-                            []
-                        )
-
-                        if steps:
-
-                            st.markdown(
-                                "#### Agent Progress"
-                            )
-
-                            for step in steps:
-
-                                st.markdown(
-                                    str(step),
-                                    unsafe_allow_html=False
-                                )
-
-                        status.update(
-                            label="Answer Synthesized",
-                            state="complete",
-                            expanded=False
-                        )
-
-
-            # =================================================
-            # TIMEOUT
-            # =================================================
+                response = requests.post(
+                    f"{base_url}/query",
+                    json={"q": prompt, "thread_id": st.session_state.session_id},
+                    timeout=(10, 120),
+                )
+                response.raise_for_status()
+                data = response.json()
+                if not isinstance(data, dict) or not isinstance(data.get("answer"), str) or not data["answer"].strip() or data.get("status") == "error":
+                    raise ValueError("Invalid answer received")
             except requests.exceptions.Timeout:
-
-                request_failed = True
-
-                error_message = (
-                    "Backend request timed out.\n\n"
-                    "The Render backend may be waking up "
-                    "or the RAG pipeline is taking too long."
-                )
-
-                status.update(
-                    label="Backend Timeout",
-                    state="error",
-                    expanded=True
-                )
-
-
-            # =================================================
-            # CONNECTION ERROR
-            # =================================================
-            except requests.exceptions.ConnectionError as e:
-
-                request_failed = True
-
-                error_message = (
-                    "Unable to connect to the backend.\n\n"
-                    f"{e}"
-                )
-
-                try:
-                    logfire.error(
-                        "Backend Connection Error",
-                        error=str(e),
-                        backend_url=base_url
-                    )
-                except Exception:
-                    pass
-
-                status.update(
-                    label="Connection Failed",
-                    state="error",
-                    expanded=True
-                )
-
-
-            # =================================================
-            # GENERAL REQUEST ERROR
-            # =================================================
-            except requests.exceptions.RequestException as e:
-
-                request_failed = True
-
-                error_message = (
-                    "Backend request failed.\n\n"
-                    f"{e}"
-                )
-
-                try:
-                    logfire.error(
-                        "UI Backend Request Failed",
-                        error=str(e)
-                    )
-                except Exception:
-                    pass
-
-                status.update(
-                    label="Request Failed",
-                    state="error",
-                    expanded=True
-                )
-
-
-            # =================================================
-            # UNEXPECTED ERROR
-            # =================================================
-            except Exception as e:
-
-                request_failed = True
-
-                error_message = (
-                    "Unexpected frontend error.\n\n"
-                    f"{type(e).__name__}: {e}"
-                )
-
-                try:
-                    logfire.error(
-                        "Unexpected UI Error",
-                        error=str(e)
-                    )
-                except Exception:
-                    pass
-
-                status.update(
-                    label="Unexpected Error",
-                    state="error",
-                    expanded=True
-                )
-
-
-        # =====================================================
-        # IMPORTANT:
-        # st.stop() is OUTSIDE st.status()
-        # =====================================================
-        if request_failed:
-
-            st.error(error_message)
-
-            try:
-                logfire.error(
-                    "Chat Request Failed",
-                    error=error_message,
-                    session_id=st.session_state.session_id
-                )
-            except Exception:
-                pass
-
-            st.stop()
-
-
-        # =====================================================
-        # ANSWER
-        # =====================================================
-        full_answer = data.get(
-            "answer",
-            "No response received from the backend."
-        )
-
-        answer_placeholder = st.empty()
-
-        current_text = ""
-
-        for char in full_answer:
-
-            current_text += char
-
-            answer_placeholder.markdown(
-                current_text + "▌"
-            )
-
-            time.sleep(0.005)
-
-        answer_placeholder.markdown(
-            full_answer
-        )
-
-
-        # =====================================================
-        # SOURCES
-        # =====================================================
-        sources = data.get(
-            "sources",
-            []
-        )
-
-        if sources:
-
-            with st.expander(
-                f"Retrieved Context "
-                f"({len(sources)} chunks)"
-            ):
-
-                for index, source in enumerate(
-                    sources,
-                    start=1
-                ):
-
-                    st.caption(
-                        f"Chunk {index}"
-                    )
-
-                    st.info(
-                        str(source)
-                    )
-
-        else:
-
-            st.caption(
-                "No context retrieved — "
-                "conversational response."
-            )
-
-
-        # =====================================================
-        # SAVE ASSISTANT MESSAGE
-        # =====================================================
-        st.session_state.messages.append(
-            {
-                "role": "assistant",
-                "content": full_answer
-            }
-        )
-
-        try:
-            logfire.info(
-                "Chat cycle completed successfully",
-                session_id=st.session_state.session_id
-            )
-        except Exception:
-            pass
+                error = "This answer took longer than expected. Please try again in a moment."
+            except requests.exceptions.RequestException:
+                logging.exception("Chat request failed")
+                error = "The assistant is temporarily unavailable. Please try again in a moment."
+            except (ValueError, TypeError):
+                logging.exception("Invalid chat response")
+                error = "We couldn't complete that answer. Please try rephrasing your question."
+    if error:
+        st.session_state.messages.append({"role": "assistant", "content": error, "error": True})
+    else:
+        sources = data.get("sources", [])
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": data["answer"],
+            "sources": sources if isinstance(sources, list) else [],
+        })
+    st.rerun()
