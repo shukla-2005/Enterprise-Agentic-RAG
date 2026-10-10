@@ -10,9 +10,14 @@
 
 ## Overview
 
+<img width="2864" height="1536" alt="image" src="https://github.com/user-attachments/assets/e62091e6-2b59-4e54-a62c-26f86c74ca42" />
+
+
 A production-grade, state-of-the-art Retrieval-Augmented Generation (RAG) system built for speed, scalability, and deep observability. This platform leverages **LangGraph** to handle complex reasoning and a fully local, cloud-agnostic stack for document intelligence. 
 
 Unlike standard RAG systems that treat every query identically, this **Agentic RAG** distinguishes between conversational interactions and technical requests. Using a **Planner-Retriever-Responder** architecture, it ensures technical answers are grounded in verifiable data while conversational queries remain fluid and fast.
+
+Live Link- https://enterprise-agentic-rag-q5gz29hwphpuj2jo3epirz.streamlit.app/
 
 ---
 
