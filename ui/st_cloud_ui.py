@@ -1,6 +1,7 @@
 import os
 import time
 import uuid
+from contextlib import nullcontext
 
 import requests
 import streamlit as st
@@ -48,13 +49,16 @@ USER_AVATAR = "👤"
 # =========================================================
 # BACKEND URL
 # =========================================================
-base_url = st.secrets.get(
-    "BACKEND_URL",
-    os.getenv(
-        "BACKEND_URL",
-        "https://enterprise-agentic-rag-1-w3bs.onrender.com"
-    )
-).rstrip("/")
+try:
+    configured_backend = st.secrets.get("BACKEND_URL")
+except FileNotFoundError:
+    configured_backend = None
+
+base_url = (
+    configured_backend
+    or os.getenv("BACKEND_URL")
+    or "https://enterprise-agentic-rag-1-w3bs.onrender.com"
+).strip().rstrip("/")
 
 
 # =========================================================
@@ -91,6 +95,18 @@ with st.sidebar:
     )
 
     st.caption(f"Backend: {base_url}")
+
+    if st.button("Check backend status"):
+        try:
+            health_response = requests.get(f"{base_url}/health", timeout=(10, 20))
+            if health_response.status_code == 200:
+                st.success("Backend is ready.")
+            elif health_response.status_code == 503:
+                st.warning(health_response.json().get("status", "Unavailable"))
+            else:
+                st.error(f"Backend health check returned HTTP {health_response.status_code}.")
+        except (requests.exceptions.RequestException, ValueError):
+            st.error("Cannot read backend health. Check the backend URL and Render logs.")
 
     st.markdown("---")
 
@@ -214,22 +230,20 @@ if prompt:
                 st.write("Connecting to RAG backend...")
 
                 try:
-                    with logfire.span(
+                    backend_trace = logfire.span(
                         "Calling RAG Backend",
                         backend_url=url
-                    ):
-
-                        response = requests.post(
-                            url,
-                            json=payload,
-                            timeout=120
-                        )
-
+                    )
                 except Exception:
+                    backend_trace = nullcontext()
+
+                # A timeout may happen after the backend has processed the message.
+                # Never replay a stateful chat request as a tracing fallback.
+                with backend_trace:
                     response = requests.post(
                         url,
                         json=payload,
-                        timeout=120
+                        timeout=(10, 120)
                     )
 
                 # -----------------------------------------
@@ -244,11 +258,23 @@ if prompt:
                     except Exception:
                         backend_body = "No backend response body."
 
-                    error_message = (
-                        f"Backend Error: "
-                        f"{response.status_code}\n\n"
-                        f"{backend_body}"
-                    )
+                    if response.status_code in (502, 504):
+                        error_message = (
+                            f"Backend unavailable (HTTP {response.status_code}). "
+                            "Render could not get a valid response from the backend. "
+                            "It may be starting, restarting, or failing. "
+                            "Use 'Check backend status' in the sidebar. If this persists, "
+                            "check the Render service logs for startup errors or memory limits."
+                        )
+                    elif response.status_code == 503:
+                        try:
+                            error_message = response.json().get("detail", "Backend is not ready.")
+                        except ValueError:
+                            error_message = "Backend is temporarily unavailable. Try again shortly."
+                    else:
+                        error_message = (
+                            f"Backend Error: {response.status_code}\n\n{backend_body}"
+                        )
 
                     status.update(
                         label="Backend Error",
