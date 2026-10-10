@@ -99,9 +99,9 @@ define flow farewell
 
 YAML_CONTENT = """
 models:
-  - type: main
-    engine: openai
-    model: gpt-3.5-turbo
+  - type: embeddings
+    engine: google
+    model: gemini-embedding-001
 
 instructions:
   - type: general

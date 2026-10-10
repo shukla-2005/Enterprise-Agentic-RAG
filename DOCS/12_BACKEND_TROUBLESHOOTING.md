@@ -1,5 +1,24 @@
 # Streamlit backend 502 errors
 
+## Guardrails native crash fix
+
+A Render log showing `Guardrails Check`, a Hugging Face model download, and
+`Illegal instruction (core dumped)` identified a native crash during the first
+guardrail request. Guardrails now explicitly uses NeMo's `google` embedding
+provider with `gemini-embedding-001` instead of the default FastEmbed/ONNX model.
+It uses the existing `GEMINI_API_KEY`; ensure this is set in Render. API errors
+are raised rather than falling back to a local model or bypassing guardrails.
+These embeddings are only for guardrail examples and do not change the Qdrant
+collection or require re-ingesting documents.
+
+Query stage markers now appear in Render's standard logs. Python fault handling
+is enabled for native crashes, and Docker output is unbuffered. After deployment,
+wait for `/health` to report `ready`, then test a greeting and a documentation
+question. The first request will make remote embedding calls, so it can take
+longer than subsequent requests.
+
+## Checking backend status
+
 The cloud UI calls a separate Render service. HTTP 502 means the gateway did
 not receive a valid backend response; the status alone does not identify the
 reason. A cold start, crashed process, or memory limit can produce this symptom.

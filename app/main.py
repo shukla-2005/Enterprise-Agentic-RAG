@@ -1,11 +1,19 @@
 # CRITICAL: logfire MUST be configured before ALL other imports
 # so that spans from all modules are captured from the start.
 
+import faulthandler
+
+# Print Python stacks for fatal native signals (for example ONNX SIGILL).
+# An operating-system SIGKILL/OOM kill still requires Render's Events/Metrics.
+faulthandler.enable(all_threads=True)
+
 import logfire
 import os
 import logging
 from contextlib import asynccontextmanager
 from threading import Thread
+from time import monotonic
+from uuid import uuid4
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -26,14 +34,17 @@ from typing import Optional
 
 rag_agent = None
 guard = None
+logger = logging.getLogger("uvicorn.error")
 
 
 def initialize_backend():
     # Keep SDK imports and model downloads off the server's startup path.
     global rag_agent, guard
+    logger.info("Backend initialization: importing graph and guardrails")
     from app.agents.graph import rag_agent as agent
     from app.guardrails import initialize_rails, guard as guard_query
 
+    logger.info("Backend initialization: initializing NeMo Guardrails")
     initialize_rails()
     rag_agent = agent
     guard = guard_query
@@ -47,6 +58,7 @@ def _initialize_backend(application):
         application.state.backend_status = "error"
     else:
         application.state.backend_status = "ready"
+        logger.info("Backend initialization: ready")
 
 
 @asynccontextmanager
@@ -107,6 +119,10 @@ def query(request: QueryRequest):
     require_ready()
     q = request.q
     thread_id = request.thread_id
+    request_id = uuid4().hex[:12]
+    started = monotonic()
+    stage = "guardrails"
+    logger.info("Query %s: guardrails started", request_id)
 
     initial_state = {
         "messages": [{"role": "user", "content": q}],
@@ -122,6 +138,7 @@ def query(request: QueryRequest):
     try:
         # Gate 1: NeMo Guardrails — blocks off-topic, jailbreaks, and handles dialog
         rail_fired, rail_response = guard(q)
+        logger.info("Query %s: guardrails completed in %.2fs", request_id, monotonic() - started)
         if rail_fired:
             logfire.info(f"Request blocked by guardrails | thread={thread_id}")
             return {
@@ -134,7 +151,10 @@ def query(request: QueryRequest):
 
         # Gate 2: LangGraph RAG pipeline
         # Run the graph synchronously to preserve Logfire context variables
+        stage = "rag_pipeline"
+        logger.info("Query %s: RAG pipeline started", request_id)
         final_output = rag_agent.invoke(initial_state, config=config)
+        logger.info("Query %s: RAG pipeline completed in %.2fs total", request_id, monotonic() - started)
         
         return {
             "question": q,
@@ -144,6 +164,7 @@ def query(request: QueryRequest):
             "sources": final_output.get("documents", [])
         }
     except Exception as e:
+        logger.exception("Query %s: failed during %s", request_id, stage)
         logfire.error(f"Backend Execution Failed: {e}")
         return {
             "question": q,
@@ -152,3 +173,5 @@ def query(request: QueryRequest):
             "status": "error",
             "sources": []
         }
+    finally:
+        logger.info("Query %s: finished after %.2fs", request_id, monotonic() - started)

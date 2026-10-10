@@ -1,5 +1,7 @@
 FROM python:3.10-slim
 
+ENV PYTHONUNBUFFERED=1 PYTHONFAULTHANDLER=1
+
 # Install system packages required for native Python packages like annoy
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     build-essential \
@@ -23,4 +25,4 @@ RUN pip install --no-cache-dir --prefer-binary -r requirements-prod.txt
 COPY app/ ./app/
 
 # Render provides PORT automatically
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}"]
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000}"]

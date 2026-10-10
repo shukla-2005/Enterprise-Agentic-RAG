@@ -1,4 +1,5 @@
 import logfire
+import os
 from langchain_groq import ChatGroq
 from nemoguardrails import RailsConfig, LLMRails
 
@@ -17,6 +18,12 @@ def initialize_rails() -> None:
     """
     global _rails
 
+    if not settings.GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is required for guardrails API embeddings")
+    # NeMo can include its configuration in error logs. Keep credentials out
+    # of model.parameters and let Google's client read its environment.
+    os.environ["GOOGLE_API_KEY"] = settings.GEMINI_API_KEY
+
     guard_llm = ChatGroq(
         api_key=settings.GROQ_API_KEY,
         model="openai/gpt-oss-120b",
@@ -27,6 +34,14 @@ def initialize_rails() -> None:
         colang_content=COLANG_CONTENT,
         yaml_content=YAML_CONTENT
     )
+
+    # Explicitly select remote embeddings. NeMo's default FastEmbed model
+    # downloads ONNX weights on first use and can SIGILL on the Render host.
+    for model in config.models:
+        if model.type == "embeddings":
+            model.parameters = {
+                "http_options": {"timeout": 30000},
+            }
 
     _rails = LLMRails(config, llm=guard_llm)
     logfire.info(" NeMo Guardrails initialised openai/gpt-oss-120b.")
@@ -44,8 +59,7 @@ def guard(message: str) -> tuple[bool, str | None]:
         (False, None)          — message is clean; proceed to LangGraph.
     """
     if _rails is None:
-        logfire.warning(" Guardrails not initialised — skipping gate.")
-        return False, None
+        raise RuntimeError("Guardrails are not initialized")
 
     with logfire.span("Guardrails Check"):
         result = _rails.generate(messages=[{"role": "user", "content": message}])
