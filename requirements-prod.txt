@@ -20,7 +20,7 @@ sqlalchemy==2.0.49
 
 # --- VECTOR DB & RETRIEVAL ---
 qdrant-client==1.19.1
-FlashRank==0.2.10
+#FlashRank==0.2.10
 redis==7.4.0
 
 # --- LANGCHAIN & AGENTIC ORCHESTRATION ---
