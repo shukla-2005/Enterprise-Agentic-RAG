@@ -27,7 +27,8 @@ class BackendStartupTests(unittest.TestCase):
                     self.assertEqual(client.get("/").status_code, 200)
                     health = client.get("/health")
                     self.assertEqual(health.status_code, 503)
-                    self.assertEqual(health.json(), {"status": "starting"})
+                    self.assertEqual(health.json()["status"], "starting")
+                    self.assertEqual(health.json()["guardrail_search"], "api_cosine")
                     self.assertEqual(client.post("/query", json={"q": "hello"}).status_code, 503)
                     self.assertEqual(client.get("/graph").status_code, 503)
                     guard.assert_not_called()
@@ -42,7 +43,7 @@ class BackendStartupTests(unittest.TestCase):
             # Run synchronously to assert a completed failure deterministically.
             main._initialize_backend(main.app)
             client = TestClient(main.app)
-            self.assertEqual(client.get("/health").json(), {"status": "error"})
+            self.assertEqual(client.get("/health").json()["status"], "error")
             response = client.post("/query", json={"q": "hello"})
             self.assertEqual(response.status_code, 503)
             self.assertNotIn("private details", response.text)
@@ -55,6 +56,15 @@ class BackendStartupTests(unittest.TestCase):
             response = TestClient(main.app).post("/query", json={"q": "hello"})
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json()["answer"], "Hello!")
+            agent.invoke.assert_not_called()
+
+    def test_guardrail_failure_returns_503_and_never_runs_graph(self):
+        main.app.state.backend_status = "ready"
+        with patch.object(main, "guard", side_effect=RuntimeError("private failure detail")), \
+             patch.object(main, "rag_agent", Mock()) as agent:
+            response = TestClient(main.app).post("/query", json={"q": "hello"})
+            self.assertEqual(response.status_code, 503)
+            self.assertNotIn("private failure detail", response.text)
             agent.invoke.assert_not_called()
 
 

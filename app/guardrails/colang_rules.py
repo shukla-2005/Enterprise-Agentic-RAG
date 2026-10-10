@@ -103,6 +103,14 @@ models:
     engine: google
     model: gemini-embedding-001
 
+core:
+  embedding_search_provider:
+    name: api_cosine
+
+knowledge_base:
+  embedding_search_provider:
+    name: api_cosine
+
 instructions:
   - type: general
     content: |

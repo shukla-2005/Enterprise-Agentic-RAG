@@ -39,4 +39,4 @@ def search_enterprise_knowledge(query: str, limit: int = 8):
         return results
     except Exception as e:
         logfire.error(f"❌ Qdrant Search Failed: {e}")
-        return []
+        raise RuntimeError("Knowledge retrieval is unavailable") from e

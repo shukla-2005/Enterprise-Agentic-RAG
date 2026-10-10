@@ -86,7 +86,11 @@ def require_ready():
 def health(response: Response):
     status = getattr(app.state, "backend_status", "starting")
     response.status_code = 200 if status == "ready" else 503
-    return {"status": status}
+    return {
+        "status": status,
+        "revision": os.getenv("RENDER_GIT_COMMIT", "local"),
+        "guardrail_search": "api_cosine",
+    }
 
 class QueryRequest(BaseModel):
     q: str
@@ -166,12 +170,9 @@ def query(request: QueryRequest):
     except Exception as e:
         logger.exception("Query %s: failed during %s", request_id, stage)
         logfire.error(f"Backend Execution Failed: {e}")
-        return {
-            "question": q,
-            "answer": "I apologize, but I encountered an internal error while processing your request. Please try again later.",
-            "thought_process": ["Error encountered during execution."],
-            "status": "error",
-            "sources": []
-        }
+        raise HTTPException(
+            status_code=503,
+            detail=f"Unable to complete the request during {stage}. Please retry shortly. Reference: {request_id}",
+        ) from e
     finally:
         logger.info("Query %s: finished after %.2fs", request_id, monotonic() - started)

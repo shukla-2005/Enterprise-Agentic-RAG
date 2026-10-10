@@ -17,6 +17,18 @@ wait for `/health` to report `ready`, then test a greeting and a documentation
 question. The first request will make remote embedding calls, so it can take
 longer than subsequent requests.
 
+NeMo 0.22 also uses the native Annoy library for its default search index.
+The application now registers `api_cosine`, a small exact Python index for the
+guardrail examples, to avoid both native inference and Annoy in this path.
+Guardrails still classify greetings, off-topic requests and jailbreaks.
+Internal guardrail failures stop processing and return HTTP 503; they no longer
+pass the request to the graph. Retrieval API failures also return an error
+instead of switching embedding models or generating an answer without context.
+
+`/health` includes `revision` (Render's deployed Git commit) and
+`guardrail_search: api_cosine` so deployment verification does not rely only on
+the service's `ready` status. After pushing, verify these fields before testing.
+
 ## Checking backend status
 
 The cloud UI calls a separate Render service. HTTP 502 means the gateway did

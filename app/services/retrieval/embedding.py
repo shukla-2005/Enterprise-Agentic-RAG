@@ -5,16 +5,15 @@ from app.config import settings
 
 BATCH_SIZE = 50
 _GEMINI_DIM = 3072
-_FALLBACK_DIM = 768  # all-mpnet-base-v2
 
 _active_model = None
-_model_type: str | None = None  # "gemini" or "fallback"
+_model_type: str | None = None
 
 
 # Model initialisation 
 
 def _probe_gemini():
-    """Try one embed call to verify Gemini is reachable. Returns model or None."""
+    """Verify the collection's embedding model; never switch vector spaces."""
     try:
         model = GoogleGenerativeAIEmbeddings(
             model="models/gemini-embedding-2-preview",
@@ -24,14 +23,7 @@ def _probe_gemini():
         logfire.info("Gemini embeddings ready (gemini-embedding-2-preview, 3072-dim).")
         return model
     except Exception as e:
-        logfire.warning(f"Gemini probe failed: {e}. Will use sentence-transformers fallback.")
-        return None
-
-
-def _load_fallback():
-    from sentence_transformers import SentenceTransformer
-    logfire.info("Loading sentence-transformers fallback (all-mpnet-base-v2, 768-dim).")
-    return SentenceTransformer("all-mpnet-base-v2")
+        raise RuntimeError("Gemini embeddings unavailable; cannot query the existing vector collection") from e
 
 
 def _init():
@@ -44,9 +36,6 @@ def _init():
     if gemini:
         _active_model = gemini
         _model_type = "gemini"
-    else:
-        _active_model = _load_fallback()
-        _model_type = "fallback"
 
 
 # Public helpers 
@@ -54,7 +43,7 @@ def _init():
 def get_embedding_dim() -> int:
     """Return the vector dimension for the active model. Call after _init()."""
     _init()
-    return _GEMINI_DIM if _model_type == "gemini" else _FALLBACK_DIM
+    return _GEMINI_DIM
 
 
 # Batch embedding with retry 
@@ -79,17 +68,14 @@ def _embed_batch(batch: list[str]) -> list[list[float]]:
                     logfire.error(f"Gemini embedding failed: {e}")
                     raise
         raise RuntimeError("Gemini rate limit persisted after 6 attempts.")
-    else:
-        return _active_model.encode(batch, show_progress_bar=False).tolist()
+    raise RuntimeError("Embedding model is not initialized")
 
 
 # Public API (same signatures as before)
 
 def embed_query(query: str) -> list[float]:
     _init()
-    if _model_type == "gemini":
-        return _active_model.embed_query(query)
-    return _active_model.encode([query])[0].tolist()
+    return _active_model.embed_query(query)
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:

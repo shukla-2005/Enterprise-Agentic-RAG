@@ -22,6 +22,11 @@ class GuardrailEmbeddingTests(unittest.TestCase):
         self.assertEqual(len(config.models), 1)
         model = config.models[0]
         self.assertEqual((model.type, model.engine), ("embeddings", "google"))
+        self.assertEqual(config.core.embedding_search_provider.name, "api_cosine")
+        self.assertEqual(config.knowledge_base.embedding_search_provider.name, "api_cosine")
+        factory.return_value.register_embedding_search_provider.assert_called_once_with(
+            "api_cosine", rails.ApiEmbeddingsIndex
+        )
         self.assertNotIn("test-key", str(config))
         with patch("google.genai.Client") as client, \
              patch.object(FastEmbedEmbeddingModel, "__init__", side_effect=AssertionError("Local inference forbidden")):
@@ -46,4 +51,16 @@ class GuardrailEmbeddingTests(unittest.TestCase):
     def test_uninitialized_guardrails_do_not_bypass_gate(self):
         with patch.object(rails, "_rails", None):
             with self.assertRaisesRegex(RuntimeError, "not initialized"):
+                rails.guard("hello")
+
+    def test_nemo_internal_failure_does_not_pass_gate(self):
+        result = SimpleNamespace(
+            response=[{"content": "An internal error occurred."}],
+            log=SimpleNamespace(internal_events=[{
+                "type": "InternalSystemActionFinished", "is_success": False
+            }]),
+        )
+        with patch.object(rails, "_rails") as engine:
+            engine.generate.return_value = result
+            with self.assertRaisesRegex(RuntimeError, "Guardrail processing failed"):
                 rails.guard("hello")
